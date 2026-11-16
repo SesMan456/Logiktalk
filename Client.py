@@ -4,19 +4,60 @@ import threading
 from socket import *
 from PIL import Image
 
+
 class MainWindow(CTk):
     def __init__(self):
         super().__init__()
         pygame.mixer.init()
 
-        self.message_sound = pygame.mixer.Sound("message.mp3")
-        self.click_sound = pygame.mixer.Sound("click.mp3")
+        self.current_theme = "dark"
+        set_appearance_mode(self.current_theme)
 
-        self.message_sound.set_volume(0.7)
-        self.click_sound.set_volume(0.5)
+        # Завантаження звуків
+        try:
+            self.message_sound = pygame.mixer.Sound("message.mp3")
+            self.message_sound.set_volume(0.7)
+        except:
+            self.message_sound = None
+
+        try:
+            self.click_sound = pygame.mixer.Sound("click.mp3")
+            self.click_sound.set_volume(0.5)
+        except:
+            self.click_sound = None
+
+        try:
+            self.connect_sound = pygame.mixer.Sound("connect.mp3")
+            self.connect_sound.set_volume(0.6)
+        except:
+            self.connect_sound = None
+
+        try:
+            self.on_sound = pygame.mixer.Sound("on.mp3")
+            self.on_sound.set_volume(0.5)
+        except:
+            self.on_sound = None
+
+        try:
+            self.off_sound = pygame.mixer.Sound("off.mp3")
+            self.off_sound.set_volume(0.5)
+        except:
+            self.off_sound = None
+
+        try:
+            self.error_sound = pygame.mixer.Sound("error.mp3")
+            self.error_sound.set_volume(0.6)
+        except:
+            self.error_sound = None
 
         self.message_sound_enabled = True
         self.click_sound_enabled = True
+        self.connect_sound_enabled = True
+
+        self.current_error_frame = None
+
+        self.is_connected = False
+        self.intro_finished = False
 
         self.geometry('600x400')
         self.title("Logitalk")
@@ -52,7 +93,20 @@ class MainWindow(CTk):
             font=("Arial", 16, "bold")
         ).pack(pady=(10, 15))
 
-        # Имя пользователя
+        CTkLabel(
+            self.menu_content,
+            text="Тема оформлення"
+        ).pack(pady=(5, 5))
+
+        self.theme_menu = CTkOptionMenu(
+            self.menu_content,
+            values=["Темна", "Світла"],
+            command=self.change_theme,
+            width=150
+        )
+        self.theme_menu.pack(pady=(0, 15))
+        self.theme_menu.set("Темна")
+
         CTkLabel(self.menu_content, text="Ім'я користувача").pack()
 
         self.username_entry = CTkEntry(
@@ -62,93 +116,105 @@ class MainWindow(CTk):
         )
         self.username_entry.pack(pady=(5, 15))
 
-        # Звук сообщений
         self.message_switch = CTkSwitch(
             self.menu_content,
             text="Звук повідомлень",
             command=self.toggle_message_sound
         )
-        self.message_switch.pack(pady=10)
+        self.message_switch.pack(pady=5)
         self.message_switch.select()
 
-        # Звук кликов
         self.click_switch = CTkSwitch(
             self.menu_content,
             text="Звук натискань",
             command=self.toggle_click_sound
         )
-        self.click_switch.pack(pady=10)
+        self.click_switch.pack(pady=5)
         self.click_switch.select()
 
-        # Громкость сообщений
-        CTkLabel(
-            self.menu_content,
-            text="Гучність повідомлень"
-        ).pack(pady=(15, 0))
-
-        self.message_volume = CTkSlider(
-            self.menu_content,
-            from_=0,
-            to=1,
-            command=self.change_message_volume,
-            width=150
-        )
-        self.message_volume.pack(pady=5)
-        self.message_volume.set(0.7)
-
-        # Громкость кликов
-        CTkLabel(
-            self.menu_content,
-            text="Гучність натискань"
-        ).pack(pady=(10, 0))
-
-        self.click_volume = CTkSlider(
-            self.menu_content,
-            from_=0,
-            to=1,
-            command=self.change_click_volume,
-            width=150
-        )
-        self.click_volume.pack(pady=5)
-        self.click_volume.set(0.5)
-
-        try:
-            self.sock = socket(AF_INET, SOCK_STREAM)
-            self.sock.connect(('7.tcp.eu.ngrok.io', 26006))
-            threading.Thread(target=self.recv_message, daemon=True).start()
-        except Exception as e:
-            self.add_message(f"Помилка підключення: {e}")
-
-        # Запускаємо інтро
+        # ЗАМІНА: Прибрано автоматичний виклик connect_to_server() тут.
+        # Тепер підключення почнеться одразу після закінчення інтро.
         self.after(100, self.start_splash)
 
+    def connect_to_server(self, err_frame=None, msg_label=None, reconnect_btn=None, loading_label=None):
+
+        def _thread_target():
+            try:
+                self.sock = socket(AF_INET, SOCK_STREAM)
+                self.sock.connect(('4.tcp.eu.ngrok.io', 22283))
+                threading.Thread(target=self.recv_message, daemon=True).start()
+
+                def onSuccess():
+                    self.is_connected = True
+                    if loading_label:
+                        loading_label.destroy()
+                    if err_frame:
+                        err_frame.destroy()
+                        self.current_error_frame = None
+
+                    self.add_message("Успішно підключено до сервера!")
+
+                    if self.intro_finished and self.connect_sound and self.connect_sound_enabled:
+                        self.connect_sound.play()
+
+                self.after(0, onSuccess)
+            except Exception as e:
+                error_msg = str(e)
+
+                def onError():
+                    self.is_connected = False
+                    if loading_label:
+                        loading_label.destroy()
+
+                    # Звук помилки спрацьовує тільки при реальних збоях після інтро
+                    if self.error_sound:
+                        self.error_sound.play()
+
+                    if err_frame and msg_label and reconnect_btn:
+                        msg_label.configure(text=f"Помилка підключення: {error_msg}")
+                        reconnect_btn.pack(anchor='w', pady=(2, 5))
+                    else:
+                        self.add_error_message(f"Помилка підключення: {error_msg}")
+
+                self.after(0, onError)
+
+        threading.Thread(target=_thread_target, daemon=True).start()
+
+    def change_theme(self, choice):
+        if choice == "Світла":
+            self.current_theme = "light"
+        else:
+            self.current_theme = "dark"
+        set_appearance_mode(self.current_theme)
+
     def toggle_menu(self):
+        if self.click_sound and self.click_sound_enabled:
+            self.click_sound.play()
+
         if self.is_show_menu:
             self.menu_content.place_forget()
             self.menu_frame.configure(width=50)
-            if self.click_sound_enabled:
-                self.click_sound.play()
             self.btn.configure(text='▶️')
             self.is_show_menu = False
         else:
             self.menu_frame.configure(width=200)
             self.menu_content.place(x=10, y=50)
-            if self.click_sound_enabled:
-                self.click_sound.play()
             self.btn.configure(text='◀️')
             self.is_show_menu = True
 
     def toggle_message_sound(self):
         self.message_sound_enabled = bool(self.message_switch.get())
+        if self.message_sound_enabled:
+            if self.on_sound: self.on_sound.play()
+        else:
+            if self.off_sound: self.off_sound.play()
 
     def toggle_click_sound(self):
         self.click_sound_enabled = bool(self.click_switch.get())
-
-    def change_message_volume(self, value):
-        self.message_sound.set_volume(float(value))
-
-    def change_click_volume(self, value):
-        self.click_sound.set_volume(float(value))
+        if self.click_sound_enabled:
+            if self.on_sound: self.on_sound.play()
+        else:
+            if self.off_sound: self.off_sound.play()
 
     def add_message(self, text):
         def _update():
@@ -157,18 +223,66 @@ class MainWindow(CTk):
 
         self.after(0, _update)
 
+    def add_error_message(self, text):
+        def _update():
+            if self.current_error_frame and self.current_error_frame.winfo_exists():
+                self.current_error_frame.destroy()
+
+            err_frame = CTkFrame(self.chat_field, fg_color="transparent")
+            err_frame.pack(fill='x', padx=5, pady=2)
+            self.current_error_frame = err_frame
+
+            msg_label = CTkLabel(err_frame, text=text, anchor='w', justify='left', text_color="#FF5555")
+            msg_label.pack(anchor='w', fill='x')
+
+            reconnect_btn = CTkButton(
+                err_frame,
+                text="Перепідключитися",
+                width=120,
+                height=24,
+                font=("Arial", 11),
+                fg_color="#FFA500",
+                hover_color="#FF8C00",
+                text_color="#000000"
+            )
+            reconnect_btn.pack(anchor='w', pady=(2, 5))
+
+            def on_click():
+                if self.click_sound and self.click_sound_enabled:
+                    self.click_sound.play()
+
+                reconnect_btn.pack_forget()
+                loading_label = CTkLabel(err_frame, text="Підключення...", font=("Arial", 11, "italic"),
+                                         text_color="#FFA500")
+                loading_label.pack(anchor='w', pady=(2, 5))
+
+                self.connect_to_server(
+                    err_frame=err_frame,
+                    msg_label=msg_label,
+                    reconnect_btn=reconnect_btn,
+                    loading_label=loading_label
+                )
+
+            reconnect_btn.configure(command=on_click)
+
+        self.after(0, _update)
+
     def send_message(self):
         name = (self.username_entry.get().strip() or "User")
         message = (self.message_entry.get().strip())
-        if self.click_sound_enabled:
+
+        if self.click_sound and self.click_sound_enabled:
             self.click_sound.play()
+
         if message:
             full_text = f"{name}: {message}"
-            self.add_message(f"Я: {message}")
+            self.add_message(f"Вы: {message}")
             try:
                 self.sock.send(full_text.encode())
             except:
-                pass
+                if self.error_sound:
+                    self.error_sound.play()
+                self.add_error_message("Не вдалося надіслати повідомлення: з'єднання втрачено.")
             self.message_entry.delete(0, 'end')
 
     def recv_message(self):
@@ -177,86 +291,118 @@ class MainWindow(CTk):
                 message = self.sock.recv(1024).decode()
                 if message:
                     self.add_message(message)
-                    if self.message_sound_enabled:
+                    if self.message_sound and self.message_sound_enabled:
                         self.after(0, self.message_sound.play)
+                else:
+                    break
             except:
+                if self.error_sound:
+                    self.after(0, self.error_sound.play)
+                self.add_error_message("З'єднання з сервером розірвано.")
                 break
 
     def start_splash(self):
-        fade_in_time = 1500
-        hold_time = 4200
-        fade_out_time = 1500
+        fade_in_time = 1200
+        hold_time = 2500
+        fade_out_time = 1000
+        bg_fade_time = 800
         frame_delay = 20
 
-        self.splash = CTkFrame(self, fg_color="black", corner_radius=0)
+        self.splash = CTkFrame(self, fg_color="#000000", corner_radius=0)
         self.splash.place(x=0, y=0, relwidth=1, relheight=1)
         self.splash.lift()
 
         try:
             image = Image.open("intro.png").convert("RGBA")
         except FileNotFoundError:
-            image = Image.new("RGBA", (350, 250), (255, 255, 255, 255))
+            image = Image.new("RGBA", (350, 250), (30, 30, 30, 255))
 
         image.thumbnail((350, 250))
         img_width, img_height = image.size
 
-        self.splash_label = CTkLabel(
-            self.splash,
-            text="",
-            fg_color="black"
-        )
-        self.splash_label.place(
-            relx=0.5,
-            rely=0.5,
-            anchor="center"
-        )
+        self.splash_label = CTkLabel(self.splash, text="", fg_color="#000000")
+        self.splash_label.place(relx=0.5, rely=0.5, anchor="center")
 
         def show_frame(alpha):
             layer = image.copy()
             alpha_channel = layer.split()[3].point(lambda p: int(p * max(0.0, min(1.0, alpha))))
             layer.putalpha(alpha_channel)
 
-            # Використовуємо CTkImage замість ImageTk.PhotoImage
             ctk_img = CTkImage(light_image=layer, dark_image=layer, size=(img_width, img_height))
+            self.splash_label.configure(image=ctk_img)
+            self.splash_label.image = ctk_img
 
-            self.splash_label.configure(image=ctk_img, fg_color="black")
-            self.splash_label.image = ctk_img  # Зберігаємо посилання, щоб збірка сміття не видалила зображення
-
-        def animate(start, end, duration, callback):
+        def animate_logo(start, end, duration, callback):
             steps = max(1, duration // frame_delay)
 
             def frame(i=0):
-                alpha = start + (end - start) * i / steps
+                progress = i / steps
+                smooth = progress * progress * (3 - 2 * progress)
+
+                alpha = start + (end - start) * smooth
                 show_frame(alpha)
+
+                if hasattr(self, "intro_sound") and self.intro_sound:
+                    try:
+                        vol = (1.0 - smooth) if start > end else smooth
+                        self.intro_sound.set_volume(vol)
+                    except:
+                        pass
 
                 if i < steps:
                     self.after(frame_delay, lambda: frame(i + 1))
-                else:
-                    if callback:
-                        callback()
+                elif callback:
+                    callback()
 
             frame()
 
-        def finish_intro():
-            self.splash.destroy()
+        def fade_bg_to_chat():
+            self.splash_label.destroy()
+            self.intro_finished = True
+
+            # Тепер підключення до сервера запускається ВІДРАЗУ після завершення інтро
+            self.connect_to_server()
+
+            if self.is_connected and self.connect_sound and self.connect_sound_enabled:
+                self.connect_sound.play()
+
+            target_val = 36 if self.current_theme == "dark" else 235
+            steps = max(1, bg_fade_time // frame_delay)
+
+            def bg_frame(i=0):
+                progress = i / steps
+                smooth = progress * progress * (3 - 2 * progress)
+
+                val = int(target_val * smooth)
+                hex_color = f"#{val:02x}{val:02x}{val:02x}"
+                self.splash.configure(fg_color=hex_color)
+
+                if i < steps:
+                    self.after(frame_delay, lambda: bg_frame(i + 1))
+                else:
+                    self.splash.destroy()
+
+            bg_frame()
 
         def fade_out():
-            animate(1.0, 0.0, fade_out_time, finish_intro)
+            animate_logo(1.0, 0.0, fade_out_time, fade_bg_to_chat)
 
         def hold():
             self.after(hold_time, fade_out)
 
         def play_intro():
             try:
-                intro_sound = pygame.mixer.Sound("intro.mp3")
-                intro_sound.play()
+                self.intro_sound = pygame.mixer.Sound("intro.mp3")
+                self.intro_sound.play()
             except:
-                pass
-            animate(0.0, 1.0, fade_in_time, hold)
+                self.intro_sound = None
+
+            animate_logo(0.0, 1.0, fade_in_time, hold)
 
         show_frame(0.0)
         play_intro()
 
 
-win = MainWindow()
-win.mainloop()
+if __name__ == "__main__":
+    win = MainWindow()
+    win.mainloop()
