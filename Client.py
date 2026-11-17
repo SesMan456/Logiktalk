@@ -13,7 +13,6 @@ class MainWindow(CTk):
         self.current_theme = "dark"
         set_appearance_mode(self.current_theme)
 
-        # Завантаження звуків
         try:
             self.message_sound = pygame.mixer.Sound("message.mp3")
             self.message_sound.set_volume(0.7)
@@ -132,8 +131,6 @@ class MainWindow(CTk):
         self.click_switch.pack(pady=5)
         self.click_switch.select()
 
-        # ЗАМІНА: Прибрано автоматичний виклик connect_to_server() тут.
-        # Тепер підключення почнеться одразу після закінчення інтро.
         self.after(100, self.start_splash)
 
     def connect_to_server(self, err_frame=None, msg_label=None, reconnect_btn=None, loading_label=None):
@@ -166,7 +163,6 @@ class MainWindow(CTk):
                     if loading_label:
                         loading_label.destroy()
 
-                    # Звук помилки спрацьовує тільки при реальних збоях після інтро
                     if self.error_sound:
                         self.error_sound.play()
 
@@ -360,7 +356,6 @@ class MainWindow(CTk):
             self.splash_label.destroy()
             self.intro_finished = True
 
-            # Тепер підключення до сервера запускається ВІДРАЗУ після завершення інтро
             self.connect_to_server()
 
             if self.is_connected and self.connect_sound and self.connect_sound_enabled:
